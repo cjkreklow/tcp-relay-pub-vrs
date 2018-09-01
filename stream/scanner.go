@@ -33,8 +33,6 @@ import (
 type scanner struct {
 	*bufio.Scanner
 
-	stop bool
-
 	inMsg bool
 }
 
@@ -69,12 +67,7 @@ func (s *scanner) splitStream(data []byte, eof bool) (a int, b []byte, c error) 
 			return 0, nil, nil
 		}
 		// EOF, return error
-		return 0, nil, errors.New("premature EOF")
-	}
-
-	// stop requested
-	if s.stop {
-		return 0, nil, errors.New("stop requested")
+		return 0, nil, io.ErrUnexpectedEOF
 	}
 
 	// no begin found
@@ -95,13 +88,9 @@ func (s *scanner) splitStream(data []byte, eof bool) (a int, b []byte, c error) 
 			return 0, nil, nil
 		}
 		// EOF, return error
-		return 0, nil, errors.New("premature EOF")
+		return 0, nil, io.ErrUnexpectedEOF
 	}
 	// end found
-	if msgEnd != -1 {
-		s.inMsg = false
-		return msgEnd + 3, data[:msgEnd+3], nil
-	}
-	// should not reach here
-	return 0, nil, errors.New("splitter error")
+	s.inMsg = false
+	return msgEnd + 3, data[:msgEnd+3], nil
 }

@@ -79,11 +79,7 @@ func (sc *StreamClient) Close() {
 	}
 
 	sc.closed = true
-	if sc.scanner != nil {
-		sc.scanner.stop = true
-	}
 	if sc.conn != nil {
-		time.Sleep(500 * time.Millisecond)
 		sc.conn.Close()
 	}
 }
