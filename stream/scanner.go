@@ -25,7 +25,6 @@ package stream
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"io"
 )
 

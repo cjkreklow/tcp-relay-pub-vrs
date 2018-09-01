@@ -2,7 +2,6 @@ package relay
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 )
@@ -109,6 +108,11 @@ func (s *Server) Stats() Statistics {
 		Closed:         s.closed,
 		Err:            s.err,
 	}
+}
+
+// Err returns any server errors.
+func (s *Server) Err() error {
+	return s.err
 }
 
 // listen accepts client connections, creating client objects and adding
@@ -227,7 +231,11 @@ func (cl *clientlist) Send(msg []byte) {
 		default:
 			c.failcount++
 			if c.failcount > 10 && c.err == nil {
-				c.err = errors.New("client exceeded max send failures")
+				c.err = &ClientError{
+					errors.New("client exceeded max send failures"),
+					c.id,
+					c.addr,
+				}
 			}
 		}
 	}
@@ -272,7 +280,7 @@ type client struct {
 	conn      net.Conn
 	channel   chan []byte
 	failcount int
-	err       error
+	err       *ClientError
 }
 
 // start listens for incoming messages and writes them to the network
@@ -280,7 +288,11 @@ type client struct {
 func (c *client) start() {
 	defer func() {
 		if c.err == nil {
-			c.err = errors.New("unknown client error")
+			c.err = &ClientError{
+				errors.New("unknown client error"),
+				c.id,
+				c.addr,
+			}
 		}
 	}()
 	for {
@@ -288,17 +300,41 @@ func (c *client) start() {
 		case msg, ok := <-c.channel:
 			if !ok {
 				if c.err == nil {
-					c.err = errors.New("client channel closed")
+					c.err = &ClientError{
+						errors.New("client channel closed"),
+						c.id,
+						c.addr,
+					}
 				}
 				return
 			}
 			_, err := c.conn.Write(msg)
 			if err != nil {
+				if e, ok := err.(*net.OpError); ok {
+					if e.Temporary() {
+						continue
+					}
+				}
 				if c.err == nil {
-					c.err = fmt.Errorf("client connection error: %v", err)
+					c.err = &ClientError{
+						err,
+						c.id,
+						c.addr,
+					}
 				}
 				return
 			}
 		}
 	}
+}
+
+// ClientError is an error returned by a client connection
+type ClientError struct {
+	error
+
+	// ClientID is the internal client identifier
+	ClientID int
+
+	// ClientAddr is the remote client address
+	ClientAddr string
 }

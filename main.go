@@ -48,6 +48,7 @@ func init() {
 	go signalExitWatcher(ch)
 }
 
+// main application logic
 func main() {
 	var err error
 
@@ -63,6 +64,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error starting upstream client: %s\n", err)
 		os.Exit(1)
 	}
+	fmt.Println("upstream client connected")
 	go func() {
 		<-exitChannel
 		client.Close()
@@ -73,9 +75,10 @@ func main() {
 	// is full
 	err = server.Start(client.Scan(5, true))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error starting relay: %s\n", err)
+		fmt.Fprintf(os.Stderr, "error starting relay server: %s\n", err)
 		os.Exit(1)
 	}
+	fmt.Println("relay server started")
 	go func() {
 		<-exitChannel
 		server.Close()
@@ -87,6 +90,10 @@ func main() {
 
 	// wait for relay server to exit for some reason
 	server.Wait()
+	err = server.Err()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "server completed with error: %v\n", err)
+	}
 
 	// exit here
 	exit(-1)
@@ -113,29 +120,33 @@ func runtimeStats(server *relay.Server) {
 	var m runtime.MemStats
 	var stats relay.Statistics
 	var statTick = time.NewTicker(5 * time.Second)
-	var e error
 	var a, ta uint64
-	var indent = func(a ...interface{}) {
-		fmt.Println(append([]interface{}{"\t"}, a...)...)
-	}
 	for {
 		select {
-		case e = <-server.ClientErrors:
-			fmt.Println(e)
-			e = nil
+		case e := <-server.ClientErrors:
+			ce, ok := e.(*relay.ClientError)
+			if ok {
+				fmt.Fprintf(os.Stderr, "client error: %d %s - %v\n",
+					ce.ClientID,
+					ce.ClientAddr,
+					ce)
+			} else {
+				fmt.Fprintf(os.Stderr, "client error: %v\n", e)
+			}
 		case <-statTick.C:
 			stats = server.Stats()
-			time.Sleep(5 * time.Second)
-			indent(" =========  ==========  ==========")
-			indent(config.portNum, " -  # goroutines: ", runtime.NumGoroutine(), " Client Connections: ", stats.ClientsActive)
+			fmt.Println("    =========  ==========  ==========")
+			fmt.Printf("    %s  |  Goroutines: %d  |  Client Connections: %d\n",
+				config.outportNum, runtime.NumGoroutine(), stats.ClientsActive)
 			runtime.ReadMemStats(&m)
 			a = m.Mallocs - ta
 			ta = m.Mallocs
-			indent("Memory Acquired: ", humanize.Bytes(m.Sys))
-			indent("Recent Allocs: ", a)
-			indent("Last GC: ", m.LastGC)
-			indent("Next GC: ", humanize.Bytes(m.NextGC), "Heap Alloc: ", humanize.Bytes(m.HeapAlloc))
-			indent(" =========  ==========  ==========")
+			fmt.Printf("    Memory Acquired: %s\n", humanize.Bytes(m.Sys))
+			fmt.Printf("    Recent Allocs: %d\n", a)
+			fmt.Printf("    Last GC: %d\n", m.LastGC)
+			fmt.Printf("    Next GC: %s  |  Heap Alloc: %s\n",
+				humanize.Bytes(m.NextGC), humanize.Bytes(m.HeapAlloc))
+			fmt.Println("    =========  ==========  ==========")
 			fmt.Printf("%+v\n", stats)
 		}
 	}
